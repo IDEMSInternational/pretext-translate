@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<its:rules 
+    xmlns:its="http://www.w3.org/2005/11/its" 
+    version="2.0" 
+    xmlns:okp="okapi-framework:xmlfilter-options">
+
+    <okp:options escapeGT="yes" escapeQuotes="yes"/>
+
+    <its:translateRule selector="/*" translate="no"/>
+
+    <!-- Elements containing text to be translated -->
+    <its:translateRule selector="//p | //title | //premise | //idx" translate="yes"/>
+    <its:translateRule selector="//image/shortdescription | //image/description" translate="yes"/>
+    <its:translateRule selector="//shortlicense" translate="yes"/>
+    <its:translateRule selector="//rename" translate="yes"/>
+    
+    <!-- Text markup within text segments -->
+    <its:withinTextRule selector="//url | //xref" withinText="yes"/>
+    <its:translateRule selector="//url | //xref" translate="yes"/>
+    <its:withinTextRule selector="//b | //em | //m | //c | //term | //q" withinText="yes"/>
+    <its:translateRule selector="//b | //em | //m | //c | //term | //q" translate="yes"/>
+    <!-- Symbols. Capture pretext only if it has no children, as it's both the document root and "PreTeXt" inline text -->
+    <its:withinTextRule selector="//pretext[not(*)] | //latex[not(*)] | //minus | //degree | //nbsp" withinText="yes"/>
+    <its:withinTextRule selector="//tag" withinText="yes"/>
+    <!-- Don't try to translate maths -->
+    <its:translateRule selector="//m | //me | //md | //mrow" translate="no"/>
+    <its:translateRule selector="//intertext" translate="yes"/>
+
+    <!-- 
+    We use nested for lists, as paragraph can contain lists, which in turn can contain paragraphs.
+    The nested option allows for the translation of the text content of the list items,
+    while still allowing for the translation of the text content of the paragraphs within those list items.
+    
+    Example:
+    <p>We have the following items
+        <ul>
+            <li><p>The first item</p></li>
+            <li><p>The second item</p></li>
+        </ul>
+        with a conclusion.
+    </p> 
+
+    Will extract for translation:
+    - We have the following items <1/> with a conclusion.
+    - The first item
+    - The second item
+    -->
+    <its:withinTextRule selector="//ul | //ol | //dl" withinText="nested"/>
+
+</its:rules>

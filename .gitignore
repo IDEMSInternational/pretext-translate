@@ -1,0 +1,8 @@
+__pycache__/
+output/
+minimal_translated_fr/
+
+auth_key.json
+*.xlf
+*.out.ptx
+*.out.xml
