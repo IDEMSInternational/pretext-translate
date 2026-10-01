@@ -198,7 +198,7 @@ class PretextTranslationPipeline:
                         tag_handling="xml",
                         ignore_tags=["bpt", "ept", "ph", "it", "x", "bx", "ex"],
                         # 2. Translate the content of these, but don't break the sentence
-                        non_splitting_tags=["g", "mrk", "sub"]
+                        non_splitting_tags=["g", "mrk", "sub", "term"]
                     )
                     
                     # DeepL returns a single object if only one string was sent, 
