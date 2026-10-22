@@ -10,10 +10,15 @@
 
     <!-- Elements containing text to be translated -->
     <its:translateRule selector="//p | //title | //premise | //idx" translate="yes"/>
+    <its:translateRule selector="//fn" translate="yes"/>
+    <its:withinTextRule selector="//fn" withinText="yes"/>
+    <its:translateRule selector="//caption | //cell | //line" translate="yes"/>
+    <its:withinTextRule selector="//alert" withinText="yes"/>
+    <its:translateRule selector="//alert" translate="yes"/>
     <its:translateRule selector="//image/shortdescription | //image/description" translate="yes"/>
     <its:translateRule selector="//shortlicense" translate="yes"/>
     <its:translateRule selector="//rename" translate="yes"/>
-    
+
     <!-- Text markup within text segments -->
     <its:withinTextRule selector="//url | //xref" withinText="yes"/>
     <its:translateRule selector="//url | //xref" translate="yes"/>
@@ -25,7 +30,6 @@
     <!-- Don't try to translate maths -->
     <its:translateRule selector="//m | //me | //md | //mrow" translate="no"/>
     <its:translateRule selector="//intertext" translate="yes"/>
-
     <!-- 
     We use nested for lists, as paragraph can contain lists, which in turn can contain paragraphs.
     The nested option allows for the translation of the text content of the list items,
@@ -45,6 +49,9 @@
     - The first item
     - The second item
     -->
-    <its:withinTextRule selector="//ul | //ol | //dl" withinText="nested"/>
+    <!-- Lists: nested when inside a paragraph, block-level when standalone -->
+    <its:withinTextRule selector="//p//ul | //p//ol | //p//dl" withinText="nested"/>
+    <its:withinTextRule selector="//ul | //ol | //dl" withinText="no"/>
 
 </its:rules>
+
