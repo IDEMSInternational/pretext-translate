@@ -6,3 +6,8 @@ auth_key.json
 *.xlf
 *.out.ptx
 *.out.xml
+
+# Local run state (translation memory, cached glossaries): never committed.
+# The pipeline writes here instead of into the source tree now -- see
+# REFACTOR_PLAN.md §6.
+.cache/

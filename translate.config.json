@@ -1,0 +1,9 @@
+{
+  "schema": "pretext_translate.config/1.0.0-alpha.1",
+  "source_lang": "en",
+  "target_lang": "fr",
+  "source_files": ["source/main.ptx"],
+  "filter_config": "okf_xml@pretext_settings.fprm",
+  "tikal_path": "tikal",
+  "cache_dir": ".cache"
+}

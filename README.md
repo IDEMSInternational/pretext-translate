@@ -33,25 +33,71 @@ Check that it works by running `tikal -v`
 
 # Usage
 
-In `pretext_translator.py`, update the project-specific config at the bottom:
+Write a config file (see `translate.config.json` for a working example
+against `minimal/`):
 
-- `project_root`: Folder containing the PreTeXt project
-- `source_files`: List containing the main source file(s) of the project. `xi:include`d file do not need to be specified here.
-- `source_lang`: Code of the language the original textbook is in, e.g. `en`
-- `target_lang`: Code of the language the textbook should be translated into, e.g. `fr`
-- `deepl_api_key`: API key for your DeepL access. Ideally stored and read from a separate location. Currently set to be read from `auth_key.json`, which is part of `.gitignore`. Make sure **not** to commit your DeepL API key as it gives others access to use the DeepL API associated to your account.
+```json
+{
+  "schema": "pretext_translate.config/1.0.0-alpha.1",
+  "source_lang": "en",
+  "target_lang": "fr",
+  "source_files": ["source/main.ptx"],
+  "filter_config": "okf_xml@pretext_settings.fprm",
+  "tikal_path": "tikal",
+  "cache_dir": ".cache"
+}
+```
+
+- `source_lang`, `target_lang`: language codes, e.g. `en`, `fr`.
+- `source_files`: the project's main source file(s), relative to the project
+  directory you pass on the command line. `xi:include`d files are discovered
+  automatically and don't need to be listed.
+- `filter_config`, `segmentation_srx` (optional): paths to the Okapi ITS/SRX
+  config, resolved relative to this config file's own directory.
+- `tikal_path`: the `tikal` executable, if not on `PATH`.
+- `cache_dir`: where the translation memory and intermediate XLIFFs are kept
+  between runs (default `.cache`, gitignored).
+
+Then run:
+
+```
+python -m pretext_translate.cli SOURCE_DIR OUT_DIR --config translate.config.json
+```
+
+`SOURCE_DIR` is the PreTeXt project to translate; `OUT_DIR` is where the
+translated copy is written, and must not already exist. `SOURCE_DIR` itself
+is never modified. For example, against the `minimal/` project in this repo:
+
+```
+python -m pretext_translate.cli minimal minimal_fr --config translate.config.json
+```
+
+The DeepL API key is read from the `DEEPL_API_KEY` environment variable (or
+`--deepl-api-key-env` to use a different one — this is how a Forgejo Actions
+secret is passed in). For local development, if that variable is unset, it
+falls back to reading `auth_key.json` in the current directory (part of
+`.gitignore` — make sure **not** to commit your DeepL API key, as it gives
+others access to use the DeepL API associated with your account):
+
+```json
+{ "auth_key": "your-deepl-api-key-here" }
+```
+
+`pretext_translator.py` still works as before but is deprecated — it now
+just forwards to the CLI above and prints a warning.
 
 The pipeline consists of multiple steps:
+- Copy `SOURCE_DIR` to `OUT_DIR`; everything below operates on the copy, so `SOURCE_DIR` is never modified
 - Traverse source files and extract phrases for translation. This is done by Okapi Tikal using the ITS configuration from `pretext_settings.fprm`
-    - This creates an XLF file in the source folder for each source file
-- Merge these XLF files into a single XLF file
+    - This creates an XLF file next to each source file in `OUT_DIR`
+- Merge these XLF files into a single XLF file, kept in `cache_dir`
 - Send the phrases of the XLF file to DeepL for translation, and populate the file with the translations
-    - In the process, a translation memory `.tmx` file is created storing the phrases and their translations. On subsequent runs, if a phrase to be translated is encountered in the translation memory, it is *not* sent to DeepL for translation again.
+    - In the process, a translation memory `.tmx` file is created in `cache_dir`, storing the phrases and their translations. On subsequent runs, if a phrase to be translated is encountered in the translation memory, it is *not* sent to DeepL for translation again.
 - Split the XLF files again into one XLF file per source file
-- Generate a translated copy of the PreTeXt project
-    - For each source file, create a translated version (`.out.ptx`, in the original file tree)
+- Generate the translated project in place in `OUT_DIR`
+    - For each source file, create a translated version (`.out.ptx`)
     - This is done using Okapi Tikal
-    - Make a copy of the original project and overwrite the original PTX files in the copy with the translated versions (`.out.ptx`)
+    - Overwrite each original file in `OUT_DIR` with its translated version, and remove the `.xlf`/`.out.ptx` artifacts
 
 # Postprocessing
 
