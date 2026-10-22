@@ -20,21 +20,47 @@ reference. `sources[]` and glossary support are later steps.
 
 `filter_config` and `segmentation_srx` are resolved relative to the config
 file's own directory if given as relative paths, so a config file works the
-same regardless of the directory a run is launched from.
+same regardless of the directory a run is launched from. A `glossary` block
+is optional (REFACTOR_PLAN.md §5):
+
+::
+
+    "glossary": {"entries": {"tidyverse": "tidyverse", "p-value": "valeur p"}}
+    "glossary": {"csv": "glossary.csv"}
+
+`entries` and `csv` are mutually exclusive. `csv` is resolved the same way as
+`filter_config`. A glossary applies to the config's `(source_lang,
+target_lang)` pair only -- DeepL glossaries are themselves scoped to one
+language pair, so a config that needs a glossary for more than one pair
+needs one config (and `--cache-dir`) per pair, same as it needs one run per
+pair already.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 CONFIG_SCHEMA = "pretext_translate.config/1.0.0-alpha.1"
 
 
 class ConfigError(RuntimeError):
     """A config file that cannot be loaded as written."""
+
+
+class GlossaryConfig(BaseModel):
+    entries: Optional[Dict[str, str]] = None
+    csv: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_one_source(self) -> "GlossaryConfig":
+        if self.entries and self.csv:
+            raise ValueError("glossary: specify 'entries' or 'csv', not both")
+        if not self.entries and not self.csv:
+            raise ValueError("glossary: must specify 'entries' or 'csv'")
+        return self
 
 
 class TranslateConfig(BaseModel):
@@ -46,6 +72,7 @@ class TranslateConfig(BaseModel):
     tikal_path: str = "tikal"
     segmentation_srx: Optional[str] = None
     cache_dir: str = ".cache"
+    glossary: Optional[GlossaryConfig] = None
 
     model_config = {"populate_by_name": True}
 
@@ -87,5 +114,7 @@ def load_config(path: Path) -> TranslateConfig:
     config.filter_config = str((base_dir / config.filter_config).resolve())
     if config.segmentation_srx:
         config.segmentation_srx = str((base_dir / config.segmentation_srx).resolve())
+    if config.glossary and config.glossary.csv:
+        config.glossary.csv = str((base_dir / config.glossary.csv).resolve())
 
     return config

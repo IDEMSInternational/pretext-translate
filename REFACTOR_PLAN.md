@@ -316,6 +316,15 @@ reconsider whether the single-pair design above is still the simpler choice
 for this project's one-target-language-at-a-time usage, or whether the
 multilingual form is now worth adopting instead.
 
+**Implemented** (`pretext_translate/glossary.py`), with one finding from
+testing against the live API that changes what this feature is good for:
+passing `glossary=` to `translate_text` does not reliably force a term
+inside a full sentence -- confirmed across every `model_type` the client
+exposes. It applies consistently only when the input is close to just the
+term itself. DeepL glossaries here are a nudge, not a guaranteed
+find-and-replace; documented as such in README.md rather than presented as
+more reliable than it measured.
+
 ## 6. `.cache/` design
 
 `resolve_variant.py` already treats `.cache` as a directory that should never

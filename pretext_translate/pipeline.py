@@ -23,6 +23,7 @@ from typing import Iterable, Iterator, List, Optional
 import deepl
 
 from .config import TranslateConfig
+from .glossary import ensure_glossary
 
 NAMESPACES = {
     "xlf": "urn:oasis:names:tc:xliff:document:1.2",
@@ -190,6 +191,15 @@ class PretextTranslationPipeline:
         print(f"Sending {len(strings_to_translate)} segment(s) to DeepL in batch mode...")
         if strings_to_translate:
             translator = deepl.Translator(self.deepl_api_key)
+            # Created lazily, here, rather than once in __init__: nothing
+            # needs a glossary id (or an API call to get one) on a run
+            # where the translation memory already covers everything.
+            glossary_id = ensure_glossary(
+                translator, self.config.glossary, self.config.source_lang,
+                self.config.target_lang, self.cache_dir,
+            )
+            if glossary_id:
+                print(f"Using DeepL glossary {glossary_id}...")
             for batch in self._chunk_for_deepl(strings_to_translate):
                 try:
                     results = translator.translate_text(
@@ -199,6 +209,7 @@ class PretextTranslationPipeline:
                         tag_handling="xml",
                         ignore_tags=["bpt", "ept", "ph", "it", "x", "bx", "ex"],
                         non_splitting_tags=["g", "mrk", "sub", "term"],
+                        glossary=glossary_id,
                     )
                     if not isinstance(results, list):
                         results = [results]

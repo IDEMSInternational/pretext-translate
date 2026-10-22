@@ -86,6 +86,39 @@ others access to use the DeepL API associated with your account):
 `pretext_translator.py` still works as before but is deprecated — it now
 just forwards to the CLI above and prints a warning.
 
+## Glossary
+
+Add a `glossary` block to the config to use a
+[DeepL glossary](https://support.deepl.com/hc/en-us/articles/360019969419):
+
+```json
+{ "glossary": { "entries": { "tidyverse": "tidyverse", "p-value": "valeur p" } } }
+```
+
+or, from a CSV of `source,target` pairs:
+
+```json
+{ "glossary": { "csv": "glossary.csv" } }
+```
+
+On the first run that has strings to translate, this creates a DeepL-side
+glossary for the config's `(source_lang, target_lang)` pair and records its
+id in `<cache_dir>/glossaries.json`, keyed by a hash of the glossary's
+content. Editing the glossary creates a new one on the next run; editing
+anything else in the config does not.
+
+**Caveat, confirmed by testing against the live API, not assumed:** DeepL
+applies a glossary term reliably when it's close to the whole input (a
+single word, or a short phrase ending right at the term), but does **not**
+reliably force it inside a full, fluent sentence — the translation model can
+and does choose a different rendering of the term when the sentence reads
+better that way. This held across every `model_type` the client exposes
+(`latency_optimized`, `quality_optimized`, `prefer_quality_optimized`), so
+it isn't a model-choice setting to tune around. A glossary here is a nudge
+DeepL may follow, not a guaranteed find-and-replace — don't rely on it for a
+term that must appear verbatim; use the translation-memory `.tmx` file (see
+"Manual translation fixes" below) for that instead.
+
 The pipeline consists of multiple steps:
 - Copy `SOURCE_DIR` to `OUT_DIR`; everything below operates on the copy, so `SOURCE_DIR` is never modified
 - Traverse source files and extract phrases for translation. This is done by Okapi Tikal using the ITS configuration from `pretext_settings.fprm`
