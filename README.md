@@ -134,19 +134,23 @@ The pipeline consists of multiple steps:
 
 # Postprocessing
 
-## Configure document language 
+## Document language
 
-While this pipeline translates the text, PreTeXt-specific strings (like text on buttons or the word "abstract")
-will still appear in English. To fix this, open your root document (usually `main.ptx`) and locate the opening
-`<pretext>` tag that is near the top of the file.
+Without it, PreTeXt-specific strings (button labels, the word "abstract",
+...) stay in English even once the prose is translated, because they come
+from PreTeXt's own `xml:lang`-keyed string tables, not from the source text
+this pipeline sends to DeepL.
 
-You need to add the `xml:lang` attribute to specify the target language, for example:
+Every run now sets this automatically: whichever translated file's root
+element is `<pretext>` (normally `main.ptx`) gets `xml:lang="<target_lang>"`
+stamped onto that root tag, using `target_lang` exactly as written in the
+config -- `fr`, or a regional variant like `fr-FR`/`fr-CA`, works the same
+way it would by hand. Set `"set_document_language": false` in the config to
+go back to doing this by hand (see `config.py`'s docstring).
 
-```
-<pretext xml:lang="fr">
-```
-
-You can use `fr` or regional variants like `fr-FR` or `fr-CA`.
+If no file's root is `<pretext>` -- translating a fragment that isn't the
+whole project, say -- the run prints a warning instead of guessing, and
+`xml:lang` is left for you to set as before.
 
 ## Manual translation fixes
 

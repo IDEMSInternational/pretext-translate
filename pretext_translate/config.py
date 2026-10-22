@@ -34,6 +34,11 @@ target_lang)` pair only -- DeepL glossaries are themselves scoped to one
 language pair, so a config that needs a glossary for more than one pair
 needs one config (and `--cache-dir`) per pair, same as it needs one run per
 pair already.
+
+`set_document_language` (default `True`): stamp `xml:lang="<target_lang>"`
+onto the project's root `<pretext>` element -- the postprocessing step
+README.md used to describe as a manual step after every run. Set `False` to
+go back to doing it by hand.
 """
 from __future__ import annotations
 
@@ -73,6 +78,7 @@ class TranslateConfig(BaseModel):
     segmentation_srx: Optional[str] = None
     cache_dir: str = ".cache"
     glossary: Optional[GlossaryConfig] = None
+    set_document_language: bool = True
 
     model_config = {"populate_by_name": True}
 
