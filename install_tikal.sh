@@ -87,7 +87,13 @@ echo "=> Creating symlinks in $BIN_DIR..."
 echo '#!/usr/bin/env bash' | sudo tee /usr/local/bin/tikal > /dev/null
 
 # 3. Add the Java execution command
-echo 'java -Dfile.encoding=UTF-8 -Xmx1024m -cp "${INSTALL_DIR}/lib/*" net.sf.okapi.applications.tikal.Main "$@"' | sudo tee -a /usr/local/bin/tikal > /dev/null
+# INSTALL_DIR is interpolated here (double-quoted) rather than left as
+# "${INSTALL_DIR}" for the wrapper to expand at run time: it's a variable of
+# this install script, not of the shell that later runs /usr/local/bin/tikal,
+# so it would be empty there and leave `-cp "/lib/*"` with no jars on it --
+# this previously produced "ClassNotFoundException:
+# net.sf.okapi.applications.tikal.Main" on every run.
+echo "java -Dfile.encoding=UTF-8 -Xmx1024m -cp \"${INSTALL_DIR}/lib/*\" net.sf.okapi.applications.tikal.Main \"\$@\"" | sudo tee -a /usr/local/bin/tikal > /dev/null
 
 # 4. Make the new wrapper executable
 sudo chmod +x /usr/local/bin/tikal
