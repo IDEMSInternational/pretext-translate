@@ -6,6 +6,15 @@ This is a python pipeline. Install python and the requirements:
 
 `pip install -r requirements.txt`
 
+Or, to use it from another repository (e.g. a Forgejo workflow that
+translates a book kept elsewhere), install it as a package instead:
+
+`pip install git+https://git.idems.international/IDEMSInternational/pretext-translate.git`
+
+This gives you `python -m pretext_translate.cli` (and the `pretext-translate`
+console script) without a local checkout. See `minimal-svc-translate` for a
+worked example of a repository that does exactly this.
+
 It uses a translation library called Okapi. Tikal is the commandline tool
 that's employed in this pipeline, and it needs to be installed too.
 (We can consider swapping out Okapi for [ITS tool](https://itstool.org/index.html)
@@ -33,8 +42,10 @@ Check that it works by running `tikal -v`
 
 # Usage
 
-Write a config file (see `translate.config.json` for a working example
-against `minimal/`):
+Write a config file (for a working example, see
+[`minimal-svc-translate`](https://git.idems.international/IDEMSInternational/minimal-svc-translate),
+which translates [`minimal-svc`](https://git.idems.international/IDEMSInternational/minimal-svc),
+PreTeXt's own minimal example article, as its end-to-end test case):
 
 ```json
 {
@@ -66,10 +77,12 @@ python -m pretext_translate.cli SOURCE_DIR OUT_DIR --config translate.config.jso
 
 `SOURCE_DIR` is the PreTeXt project to translate; `OUT_DIR` is where the
 translated copy is written, and must not already exist. `SOURCE_DIR` itself
-is never modified. For example, against the `minimal/` project in this repo:
+is never modified -- a checkout of any svc base (or a plain PreTeXt project)
+works, e.g. a checkout of `minimal-svc`:
 
 ```
-python -m pretext_translate.cli minimal minimal_fr --config translate.config.json
+git clone https://git.idems.international/IDEMSInternational/minimal-svc.git
+python -m pretext_translate.cli minimal-svc minimal-svc_fr --config translate.config.json
 ```
 
 The DeepL API key is read from the `DEEPL_API_KEY` environment variable (or

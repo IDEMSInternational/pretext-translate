@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pretext-translate"
+version = "0.1.0"
+description = "Config-driven translation pipeline for PreTeXt textbooks (Okapi Tikal + DeepL)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "deepl==1.23.0",
+    "lxml",
+    "pydantic>=2,<3",
+]
+
+[project.scripts]
+pretext-translate = "pretext_translate.cli:main"
+
+[tool.setuptools]
+packages = ["pretext_translate"]

@@ -2,6 +2,10 @@ __pycache__/
 output/
 minimal_translated_fr/
 
+# pip build artifacts from `pip install .`
+build/
+*.egg-info/
+
 auth_key.json
 *.xlf
 *.out.ptx
