@@ -15,7 +15,8 @@ reference. `sources[]` and glossary support are later steps.
       "source_files": ["source/main.ptx"],
       "filter_config": "okf_xml@pretext_settings.fprm",
       "tikal_path": "tikal",
-      "cache_dir": ".cache"
+      "cache_dir": ".cache",
+      "translations": "translations.json"
     }
 
 `filter_config` and `segmentation_srx` are resolved relative to the config
@@ -39,6 +40,12 @@ pair already.
 onto the project's root `<pretext>` element -- the postprocessing step
 README.md used to describe as a manual step after every run. Set `False` to
 go back to doing it by hand.
+
+`translations` is an optional path (resolved the same way as
+`filter_config`) to a JSON file of hand-supplied translations for specific
+segments, checked before a segment would otherwise go to DeepL. See
+`translations.py` and README.md's "Explicit translations" for the file
+format and exactly what a key/value is keyed on.
 """
 from __future__ import annotations
 
@@ -79,6 +86,7 @@ class TranslateConfig(BaseModel):
     cache_dir: str = ".cache"
     glossary: Optional[GlossaryConfig] = None
     set_document_language: bool = True
+    translations: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 
@@ -122,5 +130,7 @@ def load_config(path: Path) -> TranslateConfig:
         config.segmentation_srx = str((base_dir / config.segmentation_srx).resolve())
     if config.glossary and config.glossary.csv:
         config.glossary.csv = str((base_dir / config.glossary.csv).resolve())
+    if config.translations:
+        config.translations = str((base_dir / config.translations).resolve())
 
     return config

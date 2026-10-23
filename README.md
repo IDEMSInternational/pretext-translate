@@ -40,6 +40,17 @@ Check that it works by running `tikal -v`
 
 ???
 
+## Running tests
+
+The test suite doesn't need Tikal or a DeepL key -- it covers `native_tags.py`
+and the explicit-translations override with DeepL itself replaced by a
+Mock, nothing that reaches the network:
+
+```
+pip install -e ".[test]"
+pytest
+```
+
 # Usage
 
 Write a config file (for a working example, see
@@ -132,6 +143,37 @@ DeepL may follow, not a guaranteed find-and-replace — don't rely on it for a
 term that must appear verbatim; use the translation-memory `.tmx` file (see
 "Manual translation fixes" below) for that instead.
 
+## Explicit translations
+
+A glossary (above) is a nudge, not a guarantee. For a specific phrase that
+keeps coming back wrong no matter how it's retried -- see "Translation
+memory validity" below for why that happens on a math-heavy sentence -- add
+a `translations` file instead, which *is* a guarantee: it's checked before
+the phrase would otherwise go to DeepL, and used verbatim if present.
+
+```json
+{ "translations": "translations.json" }
+```
+
+`translations.json` is a plain JSON object, `{"source": "target"}`:
+
+```json
+{
+  "If <m>G</m> is a finite group and <m>p</m> is a prime dividing <m>\\order{G}</m>, then the number of Sylow-<m>p</m> subgroups of <m>G</m> divides <m>\\order{G}</m> and is congruent to <m>1</m> modulo <m>p</m>. ": "Si <m>G</m> est un groupe fini et que <m>p</m> est un nombre premier divisant <m>\\order{G}</m>, alors le nombre de sous-groupes de Sylow-<m>p</m> de <m>G</m> divise <m>\\order{G}</m> et est congru à <m>1</m> modulo <m>p</m>. "
+}
+```
+
+Both the key and the value are the segment in its *encoded* form -- the
+exact string that would otherwise be sent to, or received from, DeepL, with
+each Okapi single-code triple already rewritten to the literal tag it
+represents (see "Translation memory validity"). The easiest way to get the
+key right is to copy it from a `warning: ... is unusable` line the pipeline
+already printed for that phrase, or from `tm_validate.py`'s report -- both
+show it in this same form. An override's value still goes through the
+pipeline's usual validation (matching inline codes, well-formed XML) before
+being cached, same as a real DeepL response -- a broken override is
+reported and skipped, not merged.
+
 The pipeline consists of multiple steps:
 - Copy `SOURCE_DIR` to `OUT_DIR`; everything below operates on the copy, so `SOURCE_DIR` is never modified
 - Traverse source files and extract phrases for translation. This is done by Okapi Tikal using the ITS configuration from `pretext_settings.fprm`
@@ -176,6 +218,54 @@ to generate a version of your document with the improved translations from the t
 In that file, you can also set a `creationid` (which is currently set to `DeepL_API`) to indicate that you
 are the author of the updated translation. There are also user interfaces that make it easy to work with
 `.tmx` files without having to edit the file in a text editor.
+
+## Translation memory validity
+
+DeepL's `tag_handling="xml"` occasionally mangles a segment with several
+inline codes in it -- a `<g>`/`<x>`/`<m>`/... pair missing its closing tag,
+dropped entirely, or (most common on a math-heavy sentence, with a dozen or
+more codes to track) its codes reordered until they no longer match
+source's. The last kind is still well-formed XML on its own, so it won't
+raise a parse error -- it only surfaces once Okapi's `-m` merge step turns
+those codes back into real tags, producing an actual unclosed tag in the
+final PreTeXt file (confirmed against a real `pretext build` failure).
+
+The main defense is `native_tags.py`: Okapi represents an inline,
+non-translatable element (currently just `<m>`, but this isn't hardcoded to
+that one tag) as three separate sibling codes -- `bpt`/`ph`/`ept` -- linked
+only by a numeric id, which is exactly what DeepL loses track of on a
+math-heavy segment. Before the DeepL call, each such triple is rewritten as
+the literal tag it represents (`<m>p^k</m>`, not three linked codes), with
+that tag name added to DeepL's own `ignore_tags`; the response is converted
+back afterwards, so the rest of the pipeline never knows it happened. This
+cut the worst real failures seen (9 and 18 `<m>` tags in one segment) from
+losing or scrambling most of them to all of them matching correctly.
+
+It isn't a complete fix, though -- every run still checks each segment,
+source against target, before caching or merging it, and skips (leaves
+untranslated that run) one that fails. Retrying isn't guaranteed to help:
+for a segment still broken by code reordering, DeepL has been seen to
+reproduce the exact same result on every retry, since the sentence
+restructuring that scrambles the codes doesn't change between calls. If a
+paragraph keeps coming back untranslated, that's the likely reason --
+splitting it into shorter sentences with fewer inline codes each tends to
+fix it.
+
+It's still worth checking the translation memory file directly, especially
+one that predates these checks, or that's been hand-edited or merged in
+from elsewhere (see "Manual translation fixes" above). Every run also checks
+`project_memory.tmx` as a whole at the end and prints a warning if it finds
+anything there. To check (and optionally fix) one directly:
+
+```
+python -m pretext_translate.tm_validate .cache/project_memory.tmx --source-lang en --target-lang fr
+```
+
+Add `--fix retry --apply` to drop the bad entries so the next pipeline run
+resends their source strings to DeepL (see the caveat above), or `--fix
+autoclose --apply` to best-effort repair a segment that's only missing a
+closing tag, in place. Either way, without `--apply` it's a dry run -- only
+the report is printed.
 
 ## STACK questions
 

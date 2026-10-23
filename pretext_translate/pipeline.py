@@ -19,12 +19,15 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional
 
 import deepl
 
+from . import native_tags, tm_validate
 from .config import TranslateConfig
 from .glossary import ensure_glossary
+from .inline_xml import inner_xml, replace_xml_content
+from .translations import load_translations
 
 NAMESPACES = {
     "xlf": "urn:oasis:names:tc:xliff:document:1.2",
@@ -76,6 +79,10 @@ class PretextTranslationPipeline:
         self.tm_tree, self.tm_root = self._init_tmx()
         self.memory_cache = self._load_tm_into_dict()
 
+        self.translations: Dict[str, str] = {}
+        if config.translations:
+            self.translations = load_translations(config.translations)
+
     def run(self) -> None:
         """Copy `source_dir` to `out_dir`, then translate `out_dir` in place."""
         print(f"Copying {self.source_dir} -> {self.out_dir}...")
@@ -110,7 +117,25 @@ class PretextTranslationPipeline:
                     "README.md's \"Configure document language\")."
                 )
 
+        self._check_translation_memory()
+
         print(f"\nTranslated project ready at: {self.out_dir}")
+
+    def _check_translation_memory(self) -> None:
+        """Warns, non-fatally, if `project_memory.tmx` has malformed target segments.
+
+        This can only find what's *in* the TM: a segment this run skipped
+        caching (see `_translate_xliff`'s per-batch try/except) never made it
+        in, so it won't show up here, only in that run's own warning output.
+        This instead catches what's already on disk -- a bad entry from a
+        run before that per-batch guard existed, or from `project_memory.tmx`
+        having been hand-edited or merged from another source.
+        """
+        invalid = tm_validate.find_invalid_segments(
+            self.tm_tree, self.config.source_lang, self.config.target_lang
+        )
+        if invalid:
+            print("\n" + tm_validate.format_report(invalid, self.tm_path))
 
     def _discover_source_files(self, entry_files: Iterable[Path]) -> List[str]:
         """Recursively follow `xi:include` to find every file the entries pull in."""
@@ -208,8 +233,33 @@ class PretextTranslationPipeline:
             if source_xml_str not in self.memory_cache and source_xml_str not in strings_to_translate:
                 strings_to_translate.append(source_xml_str)
 
-        print(f"Sending {len(strings_to_translate)} segment(s) to DeepL in batch mode...")
-        if strings_to_translate:
+        # Rewrite each segment's Okapi single-code triples (bpt+ph+ept) as
+        # the literal tags they represent before anything else happens to
+        # it -- see native_tags.py for why: DeepL tracks one native,
+        # self-contained tag far more reliably than three sibling codes
+        # linked only by an id. Done up front, and unconditionally, so an
+        # explicit-translations override (below) is matched and supplied in
+        # the same encoded form a DeepL call would use -- not Okapi's.
+        encoded_by_source: Dict[str, str] = {}
+        conversions_by_source: Dict[str, List[native_tags.Conversion]] = {}
+        for source_str in strings_to_translate:
+            wrapper = ET.fromstring(f"<wrapper>{source_str}</wrapper>")
+            encoded, conversions = native_tags.encode(wrapper)
+            encoded_by_source[source_str] = encoded
+            conversions_by_source[source_str] = conversions
+
+        needs_deepl: List[str] = []
+        for source_str in strings_to_translate:
+            override = self.translations.get(encoded_by_source[source_str])
+            if override is None:
+                needs_deepl.append(source_str)
+                continue
+            print(f"Using configured translation for {source_str!r}...")
+            self._apply_encoded_translation(source_str, override, conversions_by_source[source_str])
+            updates_made = True
+
+        print(f"Sending {len(needs_deepl)} segment(s) to DeepL in batch mode...")
+        if needs_deepl:
             translator = deepl.Translator(self.deepl_api_key)
             # Created lazily, here, rather than once in __init__: nothing
             # needs a glossary id (or an API call to get one) on a run
@@ -220,23 +270,31 @@ class PretextTranslationPipeline:
             )
             if glossary_id:
                 print(f"Using DeepL glossary {glossary_id}...")
-            for batch in self._chunk_for_deepl(strings_to_translate):
+            for batch in self._chunk_for_deepl(needs_deepl):
+                encoded_batch = [encoded_by_source[s] for s in batch]
+                # extra_ignore_tags is whatever tag names this batch
+                # actually used, so DeepL is told to ignore exactly those
+                # on top of the base set, not a hardcoded list -- a batch
+                # with no such tags sends none.
+                extra_ignore_tags: set[str] = set()
+                for source_str in batch:
+                    extra_ignore_tags.update(native_tags.ignore_tags_for(conversions_by_source[source_str]))
+
                 try:
                     results = translator.translate_text(
-                        batch,
+                        encoded_batch,
                         source_lang=self.config.source_lang[:2].upper(),
                         target_lang=self.config.target_lang[:2].upper(),
                         tag_handling="xml",
-                        ignore_tags=["bpt", "ept", "ph", "it", "x", "bx", "ex"],
+                        ignore_tags=["bpt", "ept", "ph", "it", "x", "bx", "ex", *sorted(extra_ignore_tags)],
                         non_splitting_tags=["g", "mrk", "sub", "term"],
                         glossary=glossary_id,
                     )
                     if not isinstance(results, list):
                         results = [results]
                     for source_str, result in zip(batch, results):
-                        self._add_to_tmx(source_str, result.text)
-                        self.memory_cache[source_str] = result.text
-                        updates_made = True
+                        if self._apply_encoded_translation(source_str, result.text, conversions_by_source[source_str]):
+                            updates_made = True
                 except deepl.DeepLException as e:
                     print(f"DeepL API error during batch translation: {e}")
 
@@ -246,13 +304,52 @@ class PretextTranslationPipeline:
             if source_el is None or not source_el.text:
                 continue
             source_xml_str = self._inner_xml(source_el)
-            if source_xml_str in self.memory_cache:
-                self._inject_translation(target_el, self.memory_cache[source_xml_str])
-                updates_made = True
+            cached = self.memory_cache.get(source_xml_str)
+            if cached is not None:
+                # A pre-existing TM entry (from before either of these
+                # checks existed, or hand-merged in from elsewhere) can
+                # still be bad. Leave the target untranslated rather than
+                # merge it -- run tm_validate.py on the TM to find and fix
+                # entries like this.
+                mismatch = tm_validate.validate_segment_pair(source_xml_str, cached)
+                if mismatch:
+                    print(f"warning: cached translation for {source_xml_str!r} is unusable: {mismatch}")
+                else:
+                    self._inject_translation(target_el, cached)
+                    updates_made = True
 
         if updates_made:
             tree.write(xliff_file, encoding="utf-8", xml_declaration=True)
             self.tm_tree.write(self.tm_path, encoding="utf-8", xml_declaration=True)
+
+    def _apply_encoded_translation(
+        self, source_str: str, encoded_translation: str, conversions: List[native_tags.Conversion]
+    ) -> bool:
+        """Decodes an encoded translation (from DeepL or an explicit-translations
+        override) back to Okapi's form, validates it, and caches it if good.
+
+        Returns whether it was applied. Shared by both sources so an
+        override goes through exactly the same checks a DeepL response
+        does, rather than being trusted blindly.
+        """
+        try:
+            decoded = native_tags.decode(encoded_translation, conversions)
+        except ValueError as e:
+            print(f"warning: translation for {source_str!r} is unusable: {e}")
+            return False
+        # DeepL's tag_handling="xml" can still mangle a segment in other
+        # ways (see tm_validate.py) -- a tag genuinely missing its closing
+        # tag, or two codes swapped. A heavily-coded segment can mangle the
+        # same way on every retry, so this is caught and skipped here too,
+        # not left for tm_validate.py to catch after the fact: better to
+        # leave it untranslated this run than cache or merge it.
+        mismatch = tm_validate.validate_segment_pair(source_str, decoded)
+        if mismatch:
+            print(f"warning: translation for {source_str!r} is unusable: {mismatch}")
+            return False
+        self._add_to_tmx(source_str, decoded)
+        self.memory_cache[source_str] = decoded
+        return True
 
     def _chunk_for_deepl(self, strings: List[str], max_strings: int = 50, max_chars: int = 30000) -> Iterator[List[str]]:
         current_batch: List[str] = []
@@ -268,11 +365,7 @@ class PretextTranslationPipeline:
             yield current_batch
 
     def _inject_translation(self, target_el: ET.Element, translated_str: str) -> None:
-        target_el.text = None
-        for child in list(target_el):
-            target_el.remove(child)
-        target_el.insert(0, ET.fromstring(f"<wrapper>{translated_str}</wrapper>"))
-        self._flatten_wrapper(target_el)
+        replace_xml_content(target_el, translated_str)
 
     # --- OKAPI MERGE ---
     def _merge_xliff(self, xliff_file: str) -> None:
@@ -347,15 +440,7 @@ class PretextTranslationPipeline:
 
     # --- HELPERS ---
     def _inner_xml(self, element: ET.Element) -> str:
-        return (element.text or "") + "".join(ET.tostring(e, encoding="unicode") for e in element)
-
-    def _flatten_wrapper(self, target_el: ET.Element) -> None:
-        wrapper = target_el.find("wrapper")
-        if wrapper is not None:
-            target_el.text = wrapper.text
-            for child in list(wrapper):
-                target_el.append(child)
-            target_el.remove(wrapper)
+        return inner_xml(element)
 
     def _print_tikal_error(self, cmd: List[str], e: subprocess.CalledProcessError) -> None:
         print("\n" + "=" * 40 + "\nTIKAL FAILED\n" + "=" * 40)
@@ -368,8 +453,25 @@ class PretextTranslationPipeline:
     # --- TRANSLATION MEMORY (TMX) ---
     def _init_tmx(self):
         if self.tm_path.exists():
-            tree = ET.parse(self.tm_path)
-            return tree, tree.getroot()
+            try:
+                tree = ET.parse(self.tm_path)
+                return tree, tree.getroot()
+            except ET.ParseError as e:
+                # E.g. a previous run killed mid-write (CI timeout, OOM) can
+                # leave this truncated. Keep the unreadable file rather than
+                # overwrite it -- tm_validate.py's --fix retry can isolate
+                # and drop just the <tu> block(s) actually at fault, which
+                # loses less than starting over -- and start this run fresh
+                # rather than crash before translating anything.
+                broken = self.tm_path.with_suffix(self.tm_path.suffix + ".broken")
+                shutil.copy(self.tm_path, broken)
+                print(
+                    f"warning: {self.tm_path} doesn't parse as XML ({e}); starting a "
+                    f"fresh translation memory for this run. The unreadable file was "
+                    f"kept at {broken} -- see tm_validate.py to try to recover entries "
+                    f"from it (--fix retry isolates and drops just the <tu> block(s) "
+                    f"actually at fault)."
+                )
 
         tmx_ns = NAMESPACES["tmx"]
         root = ET.Element(f"{{{tmx_ns}}}tmx", {"version": "1.4"})
@@ -424,5 +526,4 @@ class PretextTranslationPipeline:
         for lang, text in [(self.config.source_lang, source_text), (self.config.target_lang, target_text)]:
             tuv = ET.SubElement(tu, f"{{{tmx_ns}}}tuv", {f"{xml_ns}lang": lang})
             seg = ET.SubElement(tuv, f"{{{tmx_ns}}}seg")
-            seg.insert(0, ET.fromstring(f"<wrapper>{text}</wrapper>"))
-            self._flatten_wrapper(seg)
+            replace_xml_content(seg, text)
