@@ -16,13 +16,23 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+# run_all.py's sources[] (mode B) resolves a book with svc's own resolver.
+# A separate extra, not a hard dependency: svc pulls in a much heavier
+# tree (xmldiff, google-genai, anthropic, ...) that cli.py's mode A never
+# needs. svc isn't on a package index -- this installs it from source the
+# same way every *-svc repo's site-archive.yml already does.
+resolve = ["svcs @ git+https://git.idems.international/IDEMSInternational/svc.git"]
 
 [project.scripts]
 pretext-translate = "pretext_translate.cli:main"
 pretext-translate-tm-validate = "pretext_translate.tm_validate:main"
+pretext-translate-run-all = "pretext_translate.run_all:main"
 
 [tool.setuptools]
 packages = ["pretext_translate"]
+
+[tool.setuptools.package-data]
+pretext_translate = ["okf_xml@pretext_settings.fprm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

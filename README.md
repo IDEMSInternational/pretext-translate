@@ -64,7 +64,6 @@ PreTeXt's own minimal example article, as its end-to-end test case):
   "source_lang": "en",
   "target_lang": "fr",
   "source_files": ["source/main.ptx"],
-  "filter_config": "okf_xml@pretext_settings.fprm",
   "tikal_path": "tikal",
   "cache_dir": ".cache"
 }
@@ -74,8 +73,16 @@ PreTeXt's own minimal example article, as its end-to-end test case):
 - `source_files`: the project's main source file(s), relative to the project
   directory you pass on the command line. `xi:include`d files are discovered
   automatically and don't need to be listed.
-- `filter_config`, `segmentation_srx` (optional): paths to the Okapi ITS/SRX
-  config, resolved relative to this config file's own directory.
+- `filter_config` (optional): path to an Okapi ITS config, resolved relative
+  to this config file's own directory. With none given, the `.fprm` this
+  package ships (`pretext_translate/okf_xml@pretext_settings.fprm`,
+  installed as package data) is used -- most translation repos don't need
+  their own copy any more. One given is used wholesale in its place, not
+  merged with the bundled file -- a repo that needs its own rule for one
+  more tag copies the bundled file and edits it, same as before, just no
+  longer required to carry a copy when it isn't changing anything.
+- `segmentation_srx` (optional): path to an Okapi SRX config, resolved the
+  same way.
 - `tikal_path`: the `tikal` executable, if not on `PATH`.
 - `cache_dir`: where the translation memory and intermediate XLIFFs are kept
   between runs (default `.cache`, gitignored).
@@ -109,6 +116,51 @@ others access to use the DeepL API associated with your account):
 
 `pretext_translator.py` still works as before but is deprecated — it now
 just forwards to the CLI above and prints a warning.
+
+## Resolving the book yourself (`sources`, `run_all.py`)
+
+The usage above ("mode A") assumes `SOURCE_DIR` is already a resolved,
+buildable tree -- today, that usually means a Forgejo workflow `git
+clone`s the book itself before running `cli.py`. That works for a base, but
+silently skips a variant's decompositions if the book being translated is
+one, since nothing applies them.
+
+"Mode B" has `pretext_translate` resolve the book itself, with `svc`'s own
+resolver (`svc.resolve()` -- a plain checkout for a base, decompositions
+applied for a variant, and this code doesn't need to know which): add
+`sources` to the config instead of `source_files`, and run `run_all.py`
+instead of `cli.py`:
+
+```json
+{
+  "schema": "pretext_translate.config/1.0.0-alpha.1",
+  "source_lang": "en",
+  "target_lang": "fr",
+  "cache_dir": ".cache",
+  "sources": [
+    {"name": "rbook", "url": "https://.../rbook-svc.git", "ref": "<commit>",
+     "source_files": ["source/main.ptx"]}
+  ]
+}
+```
+
+```
+python -m pretext_translate.run_all --config translate.config.json --out-dir translated
+```
+
+Each source is checked out at its pinned `ref`, resolved, and translated
+into `OUT_DIR/<name>`, with its own `<cache_dir>/<name>` -- translation
+memory is per-book. `name` is optional with exactly one source (nothing to
+disambiguate), and required with more than one. One source failing doesn't
+stop the others; the command exits 1 if any did, after attempting all of
+them.
+
+This needs `svc` installed separately -- `pip install pretext-translate[resolve]`,
+or `pip install ./svc` from a checkout (the same way every `*-svc` repo's
+`site-archive.yml` already installs it to run `resolve_variant.py`) --
+not a dependency of this package itself, so a mode-A config never pays for
+`svc`'s own, much heavier dependency tree (`xmldiff`, `google-genai`,
+`anthropic`, ...).
 
 ## Glossary
 
