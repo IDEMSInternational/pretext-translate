@@ -19,6 +19,39 @@ def inner_xml(element: ET.Element) -> str:
     return (element.text or "") + "".join(ET.tostring(e, encoding="unicode") for e in element)
 
 
+def indent_structure(element: ET.Element, level: int = 0, space: str = "  ") -> None:
+    """Like `xml.etree.ElementTree.indent`, but never descends into a
+    `<seg>` element (by local name, namespace-agnostic).
+
+    `ET.indent`'s rule is "recurse into any child that itself has
+    children" -- fine for purely structural XML, wrong for a TMX
+    translation-memory file, where a `<seg>`'s own children are inline
+    codes (`<bpt>`/`<ph>`/`<ept>`, see `native_tags.py`) whose *lack* of
+    whitespace between them is significant content: "G" must stay
+    immediately after `<bpt id="1">&lt;m&gt;</bpt>` with no gap, or the
+    reconstructed `<m>G</m>` gains a space it never had. A generic
+    indenter would overwrite that empty tail with a newline and spaces,
+    silently corrupting exactly the math-heavy segments this project
+    otherwise goes out of its way to protect.
+
+    Only `.tmx` currently calls this; `inline_xml.py` rather than
+    `pipeline.py` because `local_name` already has to live somewhere
+    neither imports the other, and this is the same "don't touch a
+    segment's own content" concern as the rest of this module.
+    """
+    children = [c for c in element if isinstance(c.tag, str)]
+    if local_name(element.tag) == "seg" or not children:
+        return
+    child_indent = "\n" + space * (level + 1)
+    if not element.text or not element.text.strip():
+        element.text = child_indent
+    for child in children:
+        indent_structure(child, level + 1, space)
+        if not child.tail or not child.tail.strip():
+            child.tail = child_indent
+    children[-1].tail = "\n" + space * level
+
+
 def replace_xml_content(element: ET.Element, xml_fragment: str) -> None:
     """Replaces `element`'s children/text with the parsed content of `xml_fragment`.
 

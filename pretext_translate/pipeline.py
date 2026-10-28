@@ -26,7 +26,7 @@ import deepl
 from . import native_tags, tm_validate
 from .config import TranslateConfig
 from .glossary import ensure_glossary
-from .inline_xml import inner_xml, replace_xml_content
+from .inline_xml import indent_structure, inner_xml, replace_xml_content
 from .postprocess import apply_postprocess_rules
 from .translations import load_translations
 
@@ -324,6 +324,10 @@ class PretextTranslationPipeline:
 
         if updates_made:
             tree.write(xliff_file, encoding="utf-8", xml_declaration=True)
+            # Structural whitespace only (tmx/header/body/tu/tuv) -- a
+            # <seg>'s own content, inline-code tails included, is never
+            # touched. See indent_structure's own docstring for why.
+            indent_structure(self.tm_root)
             self.tm_tree.write(self.tm_path, encoding="utf-8", xml_declaration=True)
 
     def _apply_encoded_translation(
