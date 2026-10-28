@@ -45,16 +45,53 @@ language pair, so a config that needs a glossary for more than one pair
 needs one config (and `--cache-dir`) per pair, same as it needs one run per
 pair already.
 
-`set_document_language` (default `True`): stamp `xml:lang="<target_lang>"`
-onto the project's root `<pretext>` element -- the postprocessing step
-README.md used to describe as a manual step after every run. Set `False` to
-go back to doing it by hand.
+`set_document_language` (default `True`): stamp `xml:lang` onto the
+project's root `<pretext>` element -- the postprocessing step README.md used
+to describe as a manual step after every run. Set `False` to go back to
+doing it by hand.
+
+The value stamped is `document_lang` if given, otherwise `target_lang`
+resolved to a PreTeXt-supported locale via `locales.resolve_pretext_locale`
+(`"fr"` -> `"fr-FR"`, etc.) -- PreTeXt's own strings ("Hint", "Solution",
+...) need a region-qualified tag exactly matching one of the locales
+`pretext-cli` ships, or they silently stay in English, which a bare
+`target_lang` like `"fr"` does not satisfy. Set `document_lang` explicitly
+to pick the other regional variant where PreTeXt ships more than one for a
+bare code (`"fr-CA"` instead of the default `"fr-FR"`, `"pt-BR"` instead of
+the default `"pt-PT"`).
 
 `translations` is an optional path (resolved the same way as
 `filter_config`) to a JSON file of hand-supplied translations for specific
 segments, checked before a segment would otherwise go to DeepL. See
 `translations.py` and README.md's "Explicit translations" for the file
 format and exactly what a key/value is keyed on.
+
+`postprocess` is an optional list of regex fix-ups applied after
+translation, each scoped to one element (and its descendants) by `svc-id` --
+the same shape as `svc`'s own `regex_find_replace` `AtomicTransformation`
+(`target_node_id` + a find/replace pair), deliberately: a config author who
+already knows that shape from writing decompositions doesn't need a second
+one here.
+
+::
+
+    "postprocess": [
+      {"svc_id": "2b9c782e4ba1",
+       "find_pattern": "«\\s*(<q>.*?</q>)\\s*»",
+       "replace_pattern": "\\1",
+       "description": "DeepL adds its own guillemets around an already-quoted <q>, nesting two quote styles"}
+    ]
+
+A rule is skipped, not an error, in any source whose files don't contain
+that `svc-id` -- the point of scoping by id rather than by file is that one
+rule in a shared config can apply across a base and a variant that mostly
+share svc-ids (REFACTOR_PLAN.md's own base/variant split) without needing to
+know which files, if any, changed under decomposition. `find_pattern` and
+`replace_pattern` are plain Python `re.sub` arguments, applied to the
+element's serialized inner XML (text and child markup, not its own tag) --
+see `postprocess.py` for why this is a byte-level splice into the original
+file rather than a parse-modify-reserialize, the same reason
+`_configure_document_language` is.
 
 "Mode B" -- resolving the book(s) to translate via `svc`, rather than being
 handed an already-resolved tree -- adds one field, used by `run_all.py`
@@ -85,6 +122,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .locales import resolve_pretext_locale
 
 CONFIG_SCHEMA = "pretext_translate.config/1.0.0-alpha.1"
 BUNDLED_FILTER_CONFIG_NAME = "okf_xml@pretext_settings.fprm"
@@ -123,6 +162,13 @@ class GlossaryConfig(BaseModel):
         return self
 
 
+class PostprocessRule(BaseModel):
+    svc_id: str
+    find_pattern: str
+    replace_pattern: str
+    description: Optional[str] = None
+
+
 class SourceConfig(BaseModel):
     name: Optional[str] = None
     url: str
@@ -147,7 +193,9 @@ class TranslateConfig(BaseModel):
     cache_dir: str = ".cache"
     glossary: Optional[GlossaryConfig] = None
     set_document_language: bool = True
+    document_lang: Optional[str] = None
     translations: Optional[str] = None
+    postprocess: Optional[List[PostprocessRule]] = None
 
     model_config = {"populate_by_name": True}
 
@@ -208,5 +256,7 @@ def load_config(path: Path) -> TranslateConfig:
         config.glossary.csv = str((base_dir / config.glossary.csv).resolve())
     if config.translations:
         config.translations = str((base_dir / config.translations).resolve())
+    if config.document_lang is None:
+        config.document_lang = resolve_pretext_locale(config.target_lang)
 
     return config

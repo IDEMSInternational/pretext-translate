@@ -9,6 +9,7 @@ import pytest
 
 from pretext_translate.config import (
     ConfigError,
+    PostprocessRule,
     SourceConfig,
     TranslateConfig,
     bundled_filter_config,
@@ -46,6 +47,31 @@ def test_load_config_resolves_an_explicit_filter_config_relative_to_itself(tmp_p
     (tmp_path / "custom.fprm").write_text("<its:rules/>", encoding="utf-8")
     config = load_config(_write_config(tmp_path, filter_config="custom.fprm"))
     assert config.filter_config == str((tmp_path / "custom.fprm").resolve())
+
+
+def test_load_config_resolves_document_lang_from_target_lang(tmp_path):
+    """"fr" isn't a locale PreTeXt's own strings recognize -- see
+    locales.py -- so load_config fills in the resolved one when the config
+    doesn't pin its own."""
+    config = load_config(_write_config(tmp_path))
+    assert config.document_lang == "fr-FR"
+
+
+def test_load_config_leaves_an_explicit_document_lang_alone(tmp_path):
+    config = load_config(_write_config(tmp_path, document_lang="fr-CA"))
+    assert config.document_lang == "fr-CA"
+
+
+def test_load_config_parses_postprocess_rules(tmp_path):
+    config = load_config(_write_config(tmp_path, postprocess=[
+        {"svc_id": "abc123", "find_pattern": "old", "replace_pattern": "new"},
+    ]))
+    assert config.postprocess == [PostprocessRule(svc_id="abc123", find_pattern="old", replace_pattern="new")]
+
+
+def test_postprocess_defaults_to_none(tmp_path):
+    config = load_config(_write_config(tmp_path))
+    assert config.postprocess is None
 
 
 def test_mode_a_source_files_alone_is_valid():

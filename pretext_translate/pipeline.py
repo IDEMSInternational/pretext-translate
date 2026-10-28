@@ -27,6 +27,7 @@ from . import native_tags, tm_validate
 from .config import TranslateConfig
 from .glossary import ensure_glossary
 from .inline_xml import inner_xml, replace_xml_content
+from .postprocess import apply_postprocess_rules
 from .translations import load_translations
 
 NAMESPACES = {
@@ -116,6 +117,9 @@ class PretextTranslationPipeline:
                     "translated; xml:lang was not set automatically (see "
                     "README.md's \"Configure document language\")."
                 )
+
+        if self.config.postprocess:
+            apply_postprocess_rules(all_source_files, self.config.postprocess)
 
         self._check_translation_memory()
 
@@ -395,11 +399,16 @@ class PretextTranslationPipeline:
                     shutil.move(filepath, os.path.join(dirpath, original_name))
 
     def _configure_document_language(self, candidate_files: List[str]) -> int:
-        """Stamp `xml:lang="target_lang"` onto the project's root `<pretext>`.
+        """Stamp `xml:lang="<document_lang>"` onto the project's root `<pretext>`.
 
         PreTeXt-specific strings (button labels, "abstract", ...) stay in
-        English unless the root element declares the document's language --
-        previously a manual edit README.md asked for after every run.
+        English unless the root element declares the document's language as
+        one of the exact, region-qualified locale tags PreTeXt's own
+        `localizations.xml` ships (`fr-FR`, not `fr`) -- previously a manual
+        edit README.md asked for after every run, and silently wrong even
+        when done by hand, since a bare `target_lang` like `"fr"` isn't one
+        of those tags: see `config.document_lang` and `locales.py` for why
+        `document_lang`, not `target_lang`, is what gets stamped here.
 
         Checking the *parsed* root tag first, rather than just searching the
         raw text for `<pretext`, is what keeps this from matching the wrong
@@ -412,6 +421,7 @@ class PretextTranslationPipeline:
         reparse-and-reserialize, to leave every other byte of the file alone.
         """
         changed = 0
+        document_lang = self.config.document_lang or self.config.target_lang
         for file_path in candidate_files:
             try:
                 root_tag = ET.parse(file_path).getroot().tag
@@ -425,7 +435,7 @@ class PretextTranslationPipeline:
             if not match:
                 continue
             tag = match.group(0)
-            lang_attr = f' xml:lang="{self.config.target_lang}"'
+            lang_attr = f' xml:lang="{document_lang}"'
             if XML_LANG_ATTR_RE.search(tag):
                 new_tag = XML_LANG_ATTR_RE.sub(lang_attr, tag, count=1)
             else:
@@ -434,7 +444,7 @@ class PretextTranslationPipeline:
                 continue
 
             Path(file_path).write_text(text[: match.start()] + new_tag + text[match.end() :], encoding="utf-8")
-            print(f'Set xml:lang="{self.config.target_lang}" on {file_path}')
+            print(f'Set xml:lang="{document_lang}" on {file_path}')
             changed += 1
         return changed
 

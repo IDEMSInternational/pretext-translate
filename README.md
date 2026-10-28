@@ -249,15 +249,56 @@ from PreTeXt's own `xml:lang`-keyed string tables, not from the source text
 this pipeline sends to DeepL.
 
 Every run now sets this automatically: whichever translated file's root
-element is `<pretext>` (normally `main.ptx`) gets `xml:lang="<target_lang>"`
-stamped onto that root tag, using `target_lang` exactly as written in the
-config -- `fr`, or a regional variant like `fr-FR`/`fr-CA`, works the same
-way it would by hand. Set `"set_document_language": false` in the config to
-go back to doing this by hand (see `config.py`'s docstring).
+element is `<pretext>` (normally `main.ptx`) gets `xml:lang="<document_lang>"`
+stamped onto that root tag. PreTeXt's own string tables are keyed by
+region-qualified locale tags only (`fr-FR`, not `fr`) -- a bare `target_lang`
+like `"fr"` doesn't match one and silently falls back to English, which is
+exactly the bug this exists to avoid, so `document_lang` defaults to
+`target_lang` resolved to the PreTeXt locale it almost certainly means
+(`"fr"` -> `"fr-FR"`; see `locales.py`). Where `target_lang` is ambiguous
+between two PreTeXt locales (`"fr"`: `fr-FR` or `fr-CA`; `"pt"`: `pt-PT` or
+`pt-BR`) the more common of the two is the default -- set `document_lang`
+explicitly in the config to pick the other, or any locale the automatic
+resolution wouldn't guess. Set `"set_document_language": false` to go back
+to doing this by hand entirely (see `config.py`'s docstring).
 
 If no file's root is `<pretext>` -- translating a fragment that isn't the
 whole project, say -- the run prints a warning instead of guessing, and
 `xml:lang` is left for you to set as before.
+
+## Postprocessing fix-ups
+
+An optional `postprocess` list in the config applies a regex fix-up after
+translation, each scoped to one element (and its descendants) by `svc-id`
+-- the same shape as `svc`'s own `regex_find_replace` decomposition rule
+(`target_node_id` + a find/replace pair), so a config author who already
+knows that shape doesn't need a second one here:
+
+```json
+"postprocess": [
+  {"svc_id": "2b9c782e4ba1",
+   "find_pattern": "«\\s*(<q>.*?</q>)\\s*»",
+   "replace_pattern": "\\1",
+   "description": "DeepL adds its own guillemets around an already-quoted <q>, nesting two quote styles"}
+]
+```
+
+This is for a fix DeepL's output needs that's specific to *how one
+paragraph is marked up*, not a wording correction (see "Manual translation
+fixes" below for those, or the translation memory for a different wording
+entirely): PreTeXt's `<q>` element already renders its own quote marks, so
+when DeepL also writes literal quote characters around it in the
+surrounding prose, the built page shows the quote nested inside itself. The
+fix is targeted at that one paragraph's `svc-id`, not a document-wide
+find/replace, so it can't touch unrelated prose that happens to share the
+same words.
+
+A rule applies wherever its `svc_id` is actually found and is skipped,
+silently, in any file (or source, in mode B) that doesn't have it -- the
+point of scoping by id rather than by file or by source is that one rule in
+a shared config can apply across a base and a variant that mostly share
+svc-ids without needing to know which files, if any, changed under
+decomposition.
 
 ## Manual translation fixes
 
